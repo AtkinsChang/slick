@@ -180,15 +180,31 @@ trait PostgresProfile extends JdbcProfile {
   }
 
   class TableDDLBuilder(table: Table[_]) extends super.TableDDLBuilder(table) {
+    val columnDefinedPkNames: Iterable[String] = columns.flatMap {
+      case cb: ColumnDDLBuilder => cb.maybePkNames
+    }
+
     override def createPhase1 = super.createPhase1 ++ columns.flatMap {
       case cb: ColumnDDLBuilder => cb.createLobTrigger(table.tableName)
     }
+
     override def dropPhase1 = {
       val dropLobs = columns.flatMap {
         case cb: ColumnDDLBuilder => cb.dropLobTrigger(table.tableName)
       }
       if(dropLobs.isEmpty) super.dropPhase1
       else Seq("delete from "+quoteIdentifier(table.tableName)) ++ dropLobs ++ super.dropPhase1
+    }
+
+    override def addTableOptions(b: StringBuilder) = {
+      super.addTableOptions(b)
+      addColumnDefinedPks(b)
+    }
+
+    def addColumnDefinedPks(b: StringBuilder) {
+      if (columnDefinedPkNames.nonEmpty) {
+        b append "," append "primary key(" append columnDefinedPkNames.mkString(",") append ")"
+      }
     }
   }
 
@@ -215,6 +231,13 @@ trait PostgresProfile extends JdbcProfile {
       if(sqlType == "lo") Some(
         "drop trigger "+lobTrigger(tname)+" on "+quoteIdentifier(tname)
       ) else None
+
+    def maybePkNames = {
+      if(primaryKey) {
+        primaryKey = false
+        Some(quoteIdentifier(column.name))
+      } else None
+    }
   }
 
   class JdbcTypes extends super.JdbcTypes {
